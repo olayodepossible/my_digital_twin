@@ -1,0 +1,9 @@
+project_name             = "digital-twin"
+environment              = "dev"
+bedrock_model_id         = "amazon.nova-micro-v1:0"
+lambda_timeout           = 60
+api_throttle_burst_limit = 10
+api_throttle_rate_limit  = 5
+use_custom_domain        = false
+root_domain              = ""
+openrouter_api_key       = "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"
