@@ -53,6 +53,7 @@ variable "root_domain" {
 }
 
 variable "openrouter_api_key" {
-  type      = string
-  sensitive = true
+  description = "OpenRouter API key; supply via TF_VAR_openrouter_api_key or OPENROUTER_API_KEY (see deploy script), never commit in .tfvars."
+  type        = string
+  sensitive   = true
 }
