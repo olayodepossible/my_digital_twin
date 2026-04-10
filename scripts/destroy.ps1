@@ -37,7 +37,11 @@ if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
 
 # Get AWS Account ID for backend configuration
 $awsAccountId = aws sts get-caller-identity --query Account --output text
-$awsRegion = if ($env:DEFAULT_AWS_REGION) { $env:DEFAULT_AWS_REGION } else { "us-east-1" }
+$awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
+    $env:DEFAULT_AWS_REGION.Trim()
+} else {
+    "eu-west-2"
+}
 
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
