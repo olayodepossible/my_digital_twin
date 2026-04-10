@@ -31,6 +31,7 @@ if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
 }
 
 Write-Host "Building Lambda package..." -ForegroundColor Yellow
+Write-Host "Building Lambda: $env:DEFAULT_AWS_REGION" -ForegroundColor Green
 Set-Location backend
 uv run deploy.py
 Set-Location ..
