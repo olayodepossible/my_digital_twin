@@ -83,7 +83,7 @@ $frontendOut = Join-Path (Get-Location) "out"
 if (-not (Test-Path -Path $frontendOut -PathType Container)) {
     throw "Static export folder not found: $frontendOut. Fix the Next.js build (next.config needs output: 'export') and ensure npm run build succeeds."
 }
-aws s3 sync -- $frontendOut "s3://$FrontendBucket/" --delete
+aws s3 sync "$frontendOut" "s3://$FrontendBucket/" --delete
 if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed (exit $LASTEXITCODE)." }
 Set-Location ..
 
