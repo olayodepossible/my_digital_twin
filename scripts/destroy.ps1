@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$Environment,
-    [string]$ProjectName = "digital-twin"
+    [string]$ProjectName = "twin"
 )
 
 # Validate environment parameter
@@ -15,6 +15,38 @@ Write-Host "Preparing to destroy $ProjectName-$Environment infrastructure..." -F
 
 # Navigate to terraform directory
 Set-Location (Join-Path (Split-Path $PSScriptRoot -Parent) "terraform")
+
+$dotenvPath = Join-Path (Split-Path (Get-Location) -Parent) ".env"
+if (Test-Path $dotenvPath) {
+    Get-Content $dotenvPath | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -eq "" -or $line.StartsWith("#")) { return }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) { return }
+        $name = $line.Substring(0, $eq).Trim()
+        $val = $line.Substring($eq + 1).Trim()
+        if ($val.Length -ge 2 -and (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'")))) {
+            $val = $val.Substring(1, $val.Length - 2)
+        }
+        if ($name) { [Environment]::SetEnvironmentVariable($name, $val, "Process") }
+    }
+}
+if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
+    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY
+}
+
+# Get AWS Account ID for backend configuration
+$awsAccountId = aws sts get-caller-identity --query Account --output text
+$awsRegion = if ($env:DEFAULT_AWS_REGION) { $env:DEFAULT_AWS_REGION } else { "us-east-1" }
+
+# Initialize terraform with S3 backend
+Write-Host "Initializing Terraform with S3 backend..." -ForegroundColor Yellow
+terraform init -input=false `
+  -backend-config="bucket=twin-terraform-state-$awsAccountId" `
+  -backend-config="key=$Environment/terraform.tfstate" `
+  -backend-config="region=$awsRegion" `
+  -backend-config="dynamodb_table=twin-terraform-locks" `
+  -backend-config="encrypt=true"
 
 # Check if workspace exists
 $workspaces = terraform workspace list
@@ -30,10 +62,7 @@ terraform workspace select $Environment
 
 Write-Host "Emptying S3 buckets..." -ForegroundColor Yellow
 
-# Get AWS Account ID for bucket names
-$awsAccountId = aws sts get-caller-identity --query Account --output text
-
-# Define bucket names with account ID
+# Define bucket names with account ID (matching Day 4 naming)
 $FrontendBucket = "$ProjectName-$Environment-frontend-$awsAccountId"
 $MemoryBucket = "$ProjectName-$Environment-memory-$awsAccountId"
 
@@ -59,9 +88,14 @@ Write-Host "Running terraform destroy..." -ForegroundColor Yellow
 
 # Run terraform destroy with auto-approve
 if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
-    terraform destroy -var-file="prod.tfvars" -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    terraform destroy -var-file=prod.tfvars `
+                     -var="project_name=$ProjectName" `
+                     -var="environment=$Environment" `
+                     -auto-approve
 } else {
-    terraform destroy -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    terraform destroy -var="project_name=$ProjectName" `
+                     -var="environment=$Environment" `
+                     -auto-approve
 }
 
 Write-Host "Infrastructure for $Environment has been destroyed!" -ForegroundColor Green

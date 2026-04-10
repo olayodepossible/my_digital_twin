@@ -1,13 +1,35 @@
 param(
-    [string]$Environment = "dev",   # dev | test | prod
+    [Parameter(Mandatory=$true)]
+    [string]$Environment,
     [string]$ProjectName = "digital-twin"
 )
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "Deploying $ProjectName to $Environment ..." -ForegroundColor Green
 
 # 1. Build Lambda package
 Set-Location (Split-Path $PSScriptRoot -Parent)   # project root
+
+$dotenvPath = Join-Path (Get-Location) ".env"
+if (Test-Path $dotenvPath) {
+    Get-Content $dotenvPath | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -eq "" -or $line.StartsWith("#")) { return }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) { return }
+        $name = $line.Substring(0, $eq).Trim()
+        $val = $line.Substring($eq + 1).Trim()
+        if ($val.Length -ge 2 -and (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'")))) {
+            $val = $val.Substring(1, $val.Length - 2)
+        }
+        if ($name) { [Environment]::SetEnvironmentVariable($name, $val, "Process") }
+    }
+}
+if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
+    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY
+}
+
 Write-Host "Building Lambda package..." -ForegroundColor Yellow
 Set-Location backend
 uv run deploy.py
@@ -15,7 +37,14 @@ Set-Location ..
 
 # 2. Terraform workspace & apply
 Set-Location terraform
-terraform init -input=false
+$awsAccountId = aws sts get-caller-identity --query Account --output text
+$awsRegion = if ($env:DEFAULT_AWS_REGION) { $env:DEFAULT_AWS_REGION } else { "eu-west-2" }
+terraform init -input=false `
+  -backend-config="bucket=twin-terraform-state-$awsAccountId" `
+  -backend-config="key=$Environment/terraform.tfstate" `
+  -backend-config="region=$awsRegion" `
+  -backend-config="dynamodb_table=twin-terraform-locks" `
+  -backend-config="encrypt=true"
 
 if (-not (terraform workspace list | Select-String $Environment)) {
     terraform workspace new $Environment
