@@ -75,8 +75,16 @@ Write-Host "Setting API URL for production..." -ForegroundColor Yellow
 "NEXT_PUBLIC_API_URL=$ApiUrl" | Out-File .env.production -Encoding utf8
 
 npm install
+if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)." }
 npm run build
-aws s3 sync .\out "s3://$FrontendBucket/" --delete
+if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit $LASTEXITCODE)." }
+
+$frontendOut = Join-Path (Get-Location) "out"
+if (-not (Test-Path -Path $frontendOut -PathType Container)) {
+    throw "Static export folder not found: $frontendOut. Fix the Next.js build (next.config needs output: 'export') and ensure npm run build succeeds."
+}
+aws s3 sync -- $frontendOut "s3://$FrontendBucket/" --delete
+if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed (exit $LASTEXITCODE)." }
 Set-Location ..
 
 # 4. Final summary
