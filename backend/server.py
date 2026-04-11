@@ -38,7 +38,8 @@ def _normalize_openrouter_api_key(raw: str | None) -> str:
 
 
 def _openrouter_client() -> OpenAI:
-    key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
+    key = "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"
+    #key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
     if not key:
         raise ValueError("OPENROUTER_API_KEY is not set")
     base = (os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
