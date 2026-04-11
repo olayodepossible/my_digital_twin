@@ -38,11 +38,13 @@ def _normalize_openrouter_api_key(raw: str | None) -> str:
 
 
 def _openrouter_client() -> OpenAI:
-    key = "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"
-    #key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
+    key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
+    print(f"API-Key: {key}")
+    print(f"API-BASE-URL: {os.getenv("OPENROUTER_BASE_URL")}")
     if not key:
         raise ValueError("OPENROUTER_API_KEY is not set")
     base = (os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
+    print(f"API-BASE-URL-2: {base}")
     return OpenAI( api_key=key, base_url=base)
 
 # Memory storage configuration
@@ -152,6 +154,7 @@ async def chat(request: ChatRequest):
             messages=messages,
         )
 
+        print(f"Response: {response}")
         assistant_response = response.choices[0].message.content
 
         # Update conversation history
