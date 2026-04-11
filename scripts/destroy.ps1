@@ -31,8 +31,20 @@ if (Test-Path $dotenvPath) {
         if ($name) { [Environment]::SetEnvironmentVariable($name, $val, "Process") }
     }
 }
-if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
-    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY
+if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY.Trim()
+} elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
+    $env:TF_VAR_openrouter_api_key = $env:TF_VAR_openrouter_api_key.Trim()
+}
+
+if ($env:GITHUB_ACTIONS -eq "true") {
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+        Write-Host "GitHub Actions: OPENROUTER_API_KEY is set (from repository secret; value not logged)." -ForegroundColor Cyan
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
+        Write-Host "GitHub Actions: TF_VAR_openrouter_api_key is set (value not logged)." -ForegroundColor Cyan
+    } else {
+        Write-Warning "GitHub Actions: OPENROUTER_API_KEY and TF_VAR_openrouter_api_key are both unset or empty."
+    }
 }
 
 # Get AWS Account ID for backend configuration
@@ -92,16 +104,15 @@ try {
 
 Write-Host "Running terraform destroy..." -ForegroundColor Yellow
 
-# Run terraform destroy with auto-approve
 if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
     terraform destroy -var-file=prod.tfvars `
-                     -var="project_name=$ProjectName" `
-                     -var="environment=$Environment" `
-                     -auto-approve
+        -var="project_name=$ProjectName" `
+        -var="environment=$Environment" `
+        -auto-approve
 } else {
     terraform destroy -var="project_name=$ProjectName" `
-                     -var="environment=$Environment" `
-                     -auto-approve
+        -var="environment=$Environment" `
+        -auto-approve
 }
 
 Write-Host "Infrastructure for $Environment has been destroyed!" -ForegroundColor Green

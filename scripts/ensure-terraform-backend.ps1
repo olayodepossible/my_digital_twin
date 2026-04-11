@@ -14,8 +14,7 @@ $table = "twin-terraform-locks"
 aws s3api head-bucket --bucket $bucket 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Creating S3 bucket for Terraform state: $bucket ($Region) ..." -ForegroundColor Yellow
-    # Only us-east-1 omits LocationConstraint; all other regions (including eu-west-2) require it.
-    if ($Region -eq "us-east-1") {
+    if ($Region -eq "eu-west-2") {
         aws s3api create-bucket --bucket $bucket --region $Region
     } else {
         aws s3api create-bucket --bucket $bucket --region $Region `

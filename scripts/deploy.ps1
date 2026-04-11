@@ -26,8 +26,21 @@ if (Test-Path $dotenvPath) {
         if ($name) { [Environment]::SetEnvironmentVariable($name, $val, "Process") }
     }
 }
-if (-not $env:TF_VAR_openrouter_api_key -and $env:OPENROUTER_API_KEY) {
-    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY
+# Terraform reads TF_VAR_openrouter_api_key. Prefer OPENROUTER_API_KEY (e.g. GitHub Actions repository secret).
+if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+    $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY.Trim()
+} elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
+    $env:TF_VAR_openrouter_api_key = $env:TF_VAR_openrouter_api_key.Trim()
+}
+
+if ($env:GITHUB_ACTIONS -eq "true") {
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+        Write-Host "GitHub Actions: OPENROUTER_API_KEY is set (from repository secret passed as env; value not logged)." -ForegroundColor Cyan
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
+        Write-Host "GitHub Actions: TF_VAR_openrouter_api_key is set (value not logged)." -ForegroundColor Cyan
+    } else {
+        Write-Warning "GitHub Actions: OPENROUTER_API_KEY and TF_VAR_openrouter_api_key are both unset or empty."
+    }
 }
 
 Write-Host "Building Lambda package..." -ForegroundColor Yellow

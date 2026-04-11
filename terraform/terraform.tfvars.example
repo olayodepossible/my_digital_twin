@@ -1,5 +1,7 @@
-# Copy to terraform.tfvars (gitignored) or rely on OPENROUTER_API_KEY in a gitignored .env file.
-# Never commit real API keys. Deploy/destroy scripts map OPENROUTER_API_KEY -> TF_VAR_openrouter_api_key.
+# Copy to terraform.tfvars (gitignored). Never commit real API keys.
+# OpenRouter: use repository secret OPENROUTER_API_KEY in GitHub Actions (see deploy.yml), or .env /
+# TF_VAR_openrouter_api_key locally. Do not set openrouter_api_key here if you rely on those—Terraform
+# loads this file with higher precedence than TF_VAR_*.
 
 project_name             = "digital-twin"
 environment              = "dev"

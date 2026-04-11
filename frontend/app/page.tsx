@@ -9,7 +9,7 @@ export default function Home() {
             AI Digital Twin
           </h1>
           <p className="text-center text-gray-600 mb-8">
-            Digital Twin in the cloud
+            Digital Twin Companion
           </p>
 
           <div className="h-[600px]">

@@ -53,7 +53,11 @@ variable "root_domain" {
 }
 
 variable "openrouter_api_key" {
-  description = "API key; supply via TF_VAR_openrouter_api_key or OPENROUTER_API_KEY (see deploy script)"
+  description = "OpenRouter API key. Set TF_VAR_openrouter_api_key or OPENROUTER_API_KEY (deploy.ps1 maps the latter for CI). Do not put secrets in committed terraform.tfvars—auto-loaded tfvars override TF_VAR."
   type        = string
   sensitive   = true
+  validation {
+    condition     = length(trimspace(var.openrouter_api_key)) >= 8
+    error_message = "openrouter_api_key must be a non-empty secret (set OPENROUTER_API_KEY or TF_VAR_openrouter_api_key)."
+  }
 }

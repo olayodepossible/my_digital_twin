@@ -12,8 +12,9 @@ import boto3
 from botocore.exceptions import ClientError
 from context import prompt
 
-# Load environment variables
-load_dotenv()
+# Load .env for local dev only; Lambda uses real env from Terraform (avoid cwd .env shadowing).
+if not os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+    load_dotenv()
 
 app = FastAPI()
 
@@ -27,8 +28,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENROUTER_API_KEY"), base_url=os.getenv("OPENROUTER_BASE_URL"))
+def _openrouter_client() -> OpenAI:
+    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        raise ValueError("OPENROUTER_API_KEY is not set")
+    base = (os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
+    return OpenAI(api_key=key, base_url=base)
+
+
+client = _openrouter_client()
 
 # Memory storage configuration
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
