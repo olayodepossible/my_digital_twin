@@ -29,8 +29,10 @@ if (Test-Path $dotenvPath) {
 # Terraform reads TF_VAR_openrouter_api_key. Prefer OPENROUTER_API_KEY (e.g. GitHub Actions repository secret).
 if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
     $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY.Trim()
+    Write-Host "Key length:" $env:TF_VAR_openrouter_api_key.Length
 } elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
     $env:TF_VAR_openrouter_api_key = $env:TF_VAR_openrouter_api_key.Trim()
+    Write-Host "Key length-ELSE:" $env:TF_VAR_openrouter_api_key.Length
 }
 
 if ($env:GITHUB_ACTIONS -eq "true") {
