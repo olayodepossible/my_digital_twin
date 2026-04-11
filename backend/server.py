@@ -28,15 +28,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def _normalize_openrouter_api_key(raw: str | None) -> str:
+    if not raw:
+        return ""
+    s = raw.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    return s.removeprefix("\ufeff").strip()
+
+
 def _openrouter_client() -> OpenAI:
-    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
     if not key:
         raise ValueError("OPENROUTER_API_KEY is not set")
     base = (os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
-    return OpenAI(api_key=key, base_url=base)
-
-
-client = _openrouter_client()
+    return OpenAI( api_key=key, base_url=base)
 
 # Memory storage configuration
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
@@ -139,10 +145,10 @@ async def chat(request: ChatRequest):
         # Add current user message
         messages.append({"role": "user", "content": request.message})
 
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model="openai/gpt-4o-mini", 
-            messages=messages
+        # OpenRouter via OpenAI SDK (new client each call so Lambda env is current; headers per OpenRouter docs).
+        response = _openrouter_client().chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=messages,
         )
 
         assistant_response = response.choices[0].message.content
