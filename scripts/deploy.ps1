@@ -6,6 +6,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-TerraformExe {
+    $cmd = Get-Command terraform -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Path }
+    foreach ($p in @(
+            (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe"),
+            "C:\Program Files\Terraform\terraform.exe"
+        )) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
 Write-Host "Deploying $ProjectName to $Environment ..." -ForegroundColor Green
 
 # 1. Build Lambda package
@@ -57,7 +69,12 @@ Set-Location ..
 
 # 2. Terraform workspace & apply
 Set-Location terraform
-$awsAccountId = aws sts get-caller-identity --query Account --output text
+$awsAccountId = (aws sts get-caller-identity --query Account --output text).Trim()
+$tf = Get-TerraformExe
+if (-not $tf) {
+    Write-Error "Terraform is not on PATH and was not found in common install locations. Install Terraform and retry."
+    exit 1
+}
 $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
     $env:DEFAULT_AWS_REGION.Trim()
 } else {
@@ -67,28 +84,28 @@ $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
 # Ensure S3 Backend exists (Fix for LocationConstraint handled inside this script)
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
-terraform init -input=false `
+& $tf init -input=false `
   -backend-config="bucket=twin-terraform-state-$awsAccountId" `
   -backend-config="key=$Environment/terraform.tfstate" `
   -backend-config="region=$awsRegion" `
-  -backend-config="dynamodb_table=twin-terraform-locks" `
+  -backend-config="use_lockfile=true" `
   -backend-config="encrypt=true"
 
 # --- Fix: Workspace Selection Logic ---
-$currentWorkspaces = terraform workspace list
+$currentWorkspaces = & $tf workspace list
 # Use regex boundary \b to ensure we don't match 'dev' inside 'dev-test'
 if ($currentWorkspaces -match "\b$Environment\b") {
     Write-Host "Selecting workspace: $Environment" -ForegroundColor Gray
-    terraform workspace select $Environment
+    & $tf workspace select $Environment
 } else {
     Write-Host "Creating new workspace: $Environment" -ForegroundColor Yellow
-    terraform workspace new $Environment
+    & $tf workspace new $Environment
 }
 
 if ($Environment -eq "prod") {
-    terraform apply -var-file="prod.tfvars" -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    & $tf apply -var-file="prod.tfvars" -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
 } else {
-    terraform apply -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    & $tf apply -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
 }
 
 # ... after terraform apply ...
@@ -96,8 +113,8 @@ if ($Environment -eq "prod") {
 Write-Host "Fetching outputs..." -ForegroundColor Yellow
 
 # Use -json and parse it to be more robust, or stay with -raw but add a check
-$FrontendBucket = terraform output -raw s3_frontend_bucket
-$ApiUrl         = terraform output -raw api_gateway_url
+$FrontendBucket = & $tf output -raw s3_frontend_bucket
+$ApiUrl         = & $tf output -raw api_gateway_url
 
 # VALIDATION: Stop early if outputs are missing
 if ([string]::IsNullOrWhiteSpace($FrontendBucket)) {
@@ -105,8 +122,8 @@ if ([string]::IsNullOrWhiteSpace($FrontendBucket)) {
     exit 1
 }
 
-Write-Host "Deploying to bucket: $FrontendBucket" -ForegroundColor Gray$FrontendBucket = terraform output -raw s3_frontend_bucket
-try { $CustomUrl = terraform output -raw custom_domain_url } catch { $CustomUrl = "" }
+Write-Host "Deploying to bucket: $FrontendBucket" -ForegroundColor Gray
+try { $CustomUrl = & $tf output -raw custom_domain_url } catch { $CustomUrl = "" }
 
 # 3. Build + deploy frontend
 Set-Location ..\frontend
@@ -124,13 +141,13 @@ if (-not (Test-Path -Path $frontendOut -PathType Container)) {
     throw "Static export folder not found: $frontendOut."
 }
 
-terraform output
+& $tf output
 aws s3 sync "$frontendOut" "s3://$FrontendBucket/" --delete
 if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed." }
 Set-Location ..
 
 # 4. Final summary
-$CfUrl = terraform -chdir=terraform output -raw cloudfront_url
+$CfUrl = & $tf -chdir=terraform output -raw cloudfront_url
 Write-Host "Deployment complete!" -ForegroundColor Green
 Write-Host "CloudFront URL : $CfUrl" -ForegroundColor Cyan
 if ($CustomUrl -and $CustomUrl -notmatch "Output not found") {

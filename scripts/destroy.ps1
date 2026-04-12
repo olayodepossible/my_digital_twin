@@ -6,6 +6,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-TerraformExe {
+    $cmd = Get-Command terraform -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Path }
+    foreach ($p in @(
+            (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe"),
+            "C:\Program Files\Terraform\terraform.exe"
+        )) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
 # Validate environment parameter
 if ($Environment -notmatch '^(dev|test|prod)$') {
     Write-Host "Error: Invalid environment '$Environment'" -ForegroundColor Red
@@ -42,28 +54,34 @@ if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
 }
 
 # 2. AWS Identity & Backend
-$awsAccountId = aws sts get-caller-identity --query Account --output text
+$awsAccountId = (aws sts get-caller-identity --query Account --output text).Trim()
 $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
     $env:DEFAULT_AWS_REGION.Trim()
 } else {
     "eu-west-2"
 }
 
+$tf = Get-TerraformExe
+if (-not $tf) {
+    Write-Error "Terraform is not on PATH and was not found in common install locations. Install Terraform and retry."
+    exit 1
+}
+
 # Ensure backend exists before init
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
 Write-Host "Initializing Terraform..." -ForegroundColor Yellow
-terraform init -input=false `
+& $tf init -input=false `
   -backend-config="bucket=twin-terraform-state-$awsAccountId" `
   -backend-config="key=$Environment/terraform.tfstate" `
   -backend-config="region=$awsRegion" `
-  -backend-config="dynamodb_table=twin-terraform-locks" `
+  -backend-config="use_lockfile=true" `
   -backend-config="encrypt=true"
 
 # 3. Workspace Selection (Fix: Match deploy.ps1 logic)
-$currentWorkspaces = terraform workspace list
+$currentWorkspaces = & $tf workspace list
 if ($currentWorkspaces -match "\b$Environment\b") {
-    terraform workspace select $Environment
+    & $tf workspace select $Environment
 } else {
     Write-Warning "Workspace '$Environment' not found. Nothing to destroy."
     exit 0
@@ -79,9 +97,18 @@ Write-Host "Emptying S3 buckets to allow destruction..." -ForegroundColor Yellow
 
 foreach ($Bucket in @($FrontendBucket, $MemoryBucket)) {
     Write-Host "  Checking $Bucket..." -ForegroundColor Gray
-    # Check if bucket exists before trying to empty it
-    aws s3api head-bucket --bucket $Bucket 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    # Check if bucket exists before trying to empty it (stderr must not stop the script)
+    $headOk = $false
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $null = aws s3api head-bucket --bucket $Bucket 2>$null
+        $headOk = ($LASTEXITCODE -eq 0)
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($headOk) {
         Write-Host "  Emptying $Bucket..." -ForegroundColor Gray
         aws s3 rm "s3://$Bucket" --recursive
     }
@@ -95,10 +122,10 @@ if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
     $destroyArgs += @("-var-file", "prod.tfvars")
 }
 
-terraform destroy @destroyArgs
+& $tf destroy @destroyArgs
 
 Write-Host "Infrastructure for $Environment has been destroyed!" -ForegroundColor Green
 Write-Host ""
 Write-Host "To clean up the workspace state from S3, run:" -ForegroundColor Cyan
-Write-Host "  terraform workspace select default"
+Write-Host "  terraform workspace select default  # from the terraform/ directory"
 Write-Host "  terraform workspace delete $Environment"
