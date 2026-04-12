@@ -123,10 +123,10 @@ $tableExists = aws dynamodb describe-table --table-name $tableName 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Creating DynamoDB table for Terraform locking: $tableName" -ForegroundColor Yellow
 
-    aws dynamodb create-table `
+    & aws dynamodb create-table `
         --table-name $tableName `
-        --attribute-definitions AttributeName=LockID,AttributeType=S `
-        --key-schema AttributeName=LockID,KeyType=HASH `
+        --attribute-definitions "AttributeName=LockID,AttributeType=S" `
+        --key-schema "AttributeName=LockID,KeyType=HASH" `
         --billing-mode PAY_PER_REQUEST | Out-Null
 }
 else {
