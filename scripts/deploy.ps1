@@ -91,8 +91,21 @@ if ($Environment -eq "prod") {
     terraform apply -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
 }
 
-$ApiUrl         = terraform output -raw api_gateway_url
+# ... after terraform apply ...
+
+Write-Host "Fetching outputs..." -ForegroundColor Yellow
+
+# Use -json and parse it to be more robust, or stay with -raw but add a check
 $FrontendBucket = terraform output -raw s3_frontend_bucket
+$ApiUrl         = terraform output -raw api_gateway_url
+
+# VALIDATION: Stop early if outputs are missing
+if ([string]::IsNullOrWhiteSpace($FrontendBucket)) {
+    Write-Error "CRITICAL: Frontend bucket name is empty! Check if 's3_frontend_bucket' is defined in outputs.tf"
+    exit 1
+}
+
+Write-Host "Deploying to bucket: $FrontendBucket" -ForegroundColor Gray$FrontendBucket = terraform output -raw s3_frontend_bucket
 try { $CustomUrl = terraform output -raw custom_domain_url } catch { $CustomUrl = "" }
 
 # 3. Build + deploy frontend
@@ -110,6 +123,8 @@ $frontendOut = Join-Path (Get-Location) "out"
 if (-not (Test-Path -Path $frontendOut -PathType Container)) {
     throw "Static export folder not found: $frontendOut."
 }
+
+terraform output
 aws s3 sync "$frontendOut" "s3://$FrontendBucket/" --delete
 if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed." }
 Set-Location ..
