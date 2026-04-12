@@ -84,9 +84,9 @@ resource "aws_s3_bucket_policy" "frontend" {
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# IAM role for Lambda
+# IAM role for Lambda (include account id like S3 buckets so name is unique per account and avoids stale orphan roles)
 resource "aws_iam_role" "lambda_role" {
-  name = "${local.name_prefix}-lambda-role"
+  name = "${local.name_prefix}-lambda-${data.aws_caller_identity.current.account_id}"
   tags = local.common_tags
 
   assume_role_policy = jsonencode({
