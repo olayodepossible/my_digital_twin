@@ -84,11 +84,11 @@ $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
 # Ensure S3 Backend exists (Fix for LocationConstraint handled inside this script)
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
-& $tf init -input=false `
+& & $tf init -input=false `
   -backend-config="bucket=twin-terraform-state-$awsAccountId" `
-  -backend-config="key=$Environment/terraform.tfstate" `
+  -backend-config="key=terraform.tfstate" `
   -backend-config="region=$awsRegion" `
-  -backend-config="use_lockfile=true" `
+  -backend-config="dynamodb_table=terraform-locks" `
   -backend-config="encrypt=true"
 
 # --- Fix: Workspace Selection Logic ---
