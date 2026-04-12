@@ -10,12 +10,16 @@ function Get-TerraformExe {
     $cmd = Get-Command terraform -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Path }
     $homeRoot = if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $env:HOME } else { $env:USERPROFILE }
-    foreach ($p in @(
-            (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe"),
-            "C:\Program Files\Terraform\terraform.exe",
-            (Join-Path $homeRoot ".local/bin/terraform"),
-            "/usr/local/bin/terraform"
-        )) {
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $candidates += (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe")
+    }
+    $candidates += @(
+        "C:\Program Files\Terraform\terraform.exe",
+        (Join-Path $homeRoot ".local/bin/terraform"),
+        "/usr/local/bin/terraform"
+    )
+    foreach ($p in $candidates) {
         if ($p -and (Test-Path -LiteralPath $p)) { return $p }
     }
     return $null

@@ -56,7 +56,8 @@ if ($headRc -ne 0) {
         }
 
         $encJson = '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-        $encFile = Join-Path $env:TEMP ("twin-tf-s3-enc-{0}.json" -f [Guid]::NewGuid())
+        # Linux runners often have no $env:TEMP; Join-Path $null throws "Cannot bind argument to parameter 'Path'".
+        $encFile = Join-Path ([System.IO.Path]::GetTempPath()) ("twin-tf-s3-enc-{0}.json" -f [Guid]::NewGuid())
         try {
             $utf8NoBom = New-Object System.Text.UTF8Encoding $false
             [System.IO.File]::WriteAllText($encFile, $encJson, $utf8NoBom)
