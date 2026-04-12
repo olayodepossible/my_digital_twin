@@ -54,7 +54,7 @@ if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
 }
 
 # 2. AWS Identity & Backend
-$awsAccountId = (aws sts get-caller-identity --query Account --output text).Trim()
+$awsAccountId = (aws sts get-caller-identity '--query' 'Account' '--output' 'text').Trim()
 $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
     $env:DEFAULT_AWS_REGION.Trim()
 } else {

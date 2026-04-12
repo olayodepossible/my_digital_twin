@@ -69,7 +69,8 @@ Set-Location ..
 
 # 2. Terraform workspace & apply
 Set-Location terraform
-$awsAccountId = (aws sts get-caller-identity --query Account --output text).Trim()
+# Inside (...), PowerShell parses '--query' as the '--' operator; quote AWS flags.
+$awsAccountId = (aws sts get-caller-identity '--query' 'Account' '--output' 'text').Trim()
 $tf = Get-TerraformExe
 if (-not $tf) {
     Write-Error "Terraform is not on PATH and was not found in common install locations. Install Terraform and retry."
@@ -142,7 +143,7 @@ if (-not (Test-Path -Path $frontendOut -PathType Container)) {
 }
 
 & $tf output
-aws s3 sync "$frontendOut" "s3://$FrontendBucket/" --delete
+aws s3 sync "$frontendOut" "s3://$FrontendBucket/" '--delete'
 if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed." }
 Set-Location ..
 
