@@ -79,12 +79,21 @@ jobs:
           
       - name: Get Deployment URLs
         working-directory: ./terraform
+        env:
+          TF_ENV: ${{ github.event.inputs.environment || 'dev' }}
+          AWS_REGION: ${{ secrets.DEFAULT_AWS_REGION }}
         run: |
-            terraform init -input=false
-            terraform workspace select ${{ github.event.inputs.environment || 'dev' }}
-            echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
-            echo "api_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
-            echo "frontend_bucket=$(terraform output -raw s3_frontend_bucket)" >> $GITHUB_OUTPUT
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform init -input=false \
+            -backend-config="bucket=twin-terraform-state-${ACCOUNT_ID}" \
+            -backend-config="key=${TF_ENV}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+          terraform workspace select "${TF_ENV}"
+          echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
+          echo "api_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
+          echo "frontend_bucket=$(terraform output -raw s3_frontend_bucket)" >> $GITHUB_OUTPUT
 
       - name: Invalidate CloudFront
         run: |
