@@ -1,8 +1,10 @@
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$Environment,
-    [string]$ProjectName = "twin"
+    [Parameter(Mandatory=$false)]
+    [string]$Environment = "dev",  # Fix: Default to dev
+    [string]$ProjectName = "digital-twin" # Match your deploy.ps1 default
 )
+
+$ErrorActionPreference = "Stop"
 
 # Validate environment parameter
 if ($Environment -notmatch '^(dev|test|prod)$') {
@@ -11,12 +13,14 @@ if ($Environment -notmatch '^(dev|test|prod)$') {
     exit 1
 }
 
-Write-Host "Preparing to destroy $ProjectName-$Environment infrastructure..." -ForegroundColor Yellow
+Write-Host "Preparing to destroy $ProjectName-$Environment infrastructure..." -ForegroundColor Red
 
-# Navigate to terraform directory
-Set-Location (Join-Path (Split-Path $PSScriptRoot -Parent) "terraform")
+# 1. Setup Environment & Paths
+$ProjectRoot = Split-Path $PSScriptRoot -Parent
+Set-Location (Join-Path $ProjectRoot "terraform")
 
-$dotenvPath = Join-Path (Split-Path (Get-Location) -Parent) ".env"
+# Load .env for variable bridging (needed for TF validation)
+$dotenvPath = Join-Path $ProjectRoot ".env"
 if (Test-Path $dotenvPath) {
     Get-Content $dotenvPath | ForEach-Object {
         $line = $_.Trim()
@@ -31,23 +35,13 @@ if (Test-Path $dotenvPath) {
         if ($name) { [Environment]::SetEnvironmentVariable($name, $val, "Process") }
     }
 }
+
+# Bridge API Key (Terraform needs this to pass variable validation)
 if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
     $env:TF_VAR_openrouter_api_key = $env:OPENROUTER_API_KEY.Trim()
-} elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
-    $env:TF_VAR_openrouter_api_key = $env:TF_VAR_openrouter_api_key.Trim()
 }
 
-if ($env:GITHUB_ACTIONS -eq "true") {
-    if (-not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
-        Write-Host "GitHub Actions: OPENROUTER_API_KEY is set (from repository secret; value not logged)." -ForegroundColor Cyan
-    } elseif (-not [string]::IsNullOrWhiteSpace($env:TF_VAR_openrouter_api_key)) {
-        Write-Host "GitHub Actions: TF_VAR_openrouter_api_key is set (value not logged)." -ForegroundColor Cyan
-    } else {
-        Write-Warning "GitHub Actions: OPENROUTER_API_KEY and TF_VAR_openrouter_api_key are both unset or empty."
-    }
-}
-
-# Get AWS Account ID for backend configuration
+# 2. AWS Identity & Backend
 $awsAccountId = aws sts get-caller-identity --query Account --output text
 $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
     $env:DEFAULT_AWS_REGION.Trim()
@@ -55,10 +49,10 @@ $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
     "eu-west-2"
 }
 
+# Ensure backend exists before init
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
-# Initialize terraform with S3 backend
-Write-Host "Initializing Terraform with S3 backend..." -ForegroundColor Yellow
+Write-Host "Initializing Terraform..." -ForegroundColor Yellow
 terraform init -input=false `
   -backend-config="bucket=twin-terraform-state-$awsAccountId" `
   -backend-config="key=$Environment/terraform.tfstate" `
@@ -66,57 +60,45 @@ terraform init -input=false `
   -backend-config="dynamodb_table=twin-terraform-locks" `
   -backend-config="encrypt=true"
 
-# Check if workspace exists
-$workspaces = terraform workspace list
-if (-not ($workspaces | Select-String $Environment)) {
-    Write-Host "Error: Workspace '$Environment' does not exist" -ForegroundColor Red
-    Write-Host "Available workspaces:" -ForegroundColor Yellow
-    terraform workspace list
-    exit 1
-}
-
-# Select the workspace
-terraform workspace select $Environment
-
-Write-Host "Emptying S3 buckets..." -ForegroundColor Yellow
-
-# Define bucket names with account ID (matching Day 4 naming)
-$FrontendBucket = "$ProjectName-$Environment-frontend-$awsAccountId"
-$MemoryBucket = "$ProjectName-$Environment-memory-$awsAccountId"
-
-# Empty frontend bucket if it exists
-try {
-    aws s3 ls "s3://$FrontendBucket" 2>$null | Out-Null
-    Write-Host "  Emptying $FrontendBucket..." -ForegroundColor Gray
-    aws s3 rm "s3://$FrontendBucket" --recursive
-} catch {
-    Write-Host "  Frontend bucket not found or already empty" -ForegroundColor Gray
-}
-
-# Empty memory bucket if it exists
-try {
-    aws s3 ls "s3://$MemoryBucket" 2>$null | Out-Null
-    Write-Host "  Emptying $MemoryBucket..." -ForegroundColor Gray
-    aws s3 rm "s3://$MemoryBucket" --recursive
-} catch {
-    Write-Host "  Memory bucket not found or already empty" -ForegroundColor Gray
-}
-
-Write-Host "Running terraform destroy..." -ForegroundColor Yellow
-
-if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
-    terraform destroy -var-file=prod.tfvars `
-        -var="project_name=$ProjectName" `
-        -var="environment=$Environment" `
-        -auto-approve
+# 3. Workspace Selection (Fix: Match deploy.ps1 logic)
+$currentWorkspaces = terraform workspace list
+if ($currentWorkspaces -match "\b$Environment\b") {
+    terraform workspace select $Environment
 } else {
-    terraform destroy -var="project_name=$ProjectName" `
-        -var="environment=$Environment" `
-        -auto-approve
+    Write-Warning "Workspace '$Environment' not found. Nothing to destroy."
+    exit 0
 }
+
+# 4. Empty S3 Buckets (Fix: Aligned with Terraform locals)
+# local.name_prefix = "${var.project_name}-${var.environment}"
+$Prefix = "$ProjectName-$Environment"
+$FrontendBucket = "$Prefix-frontend-$awsAccountId"
+$MemoryBucket = "$Prefix-memory-$awsAccountId"
+
+Write-Host "Emptying S3 buckets to allow destruction..." -ForegroundColor Yellow
+
+foreach ($Bucket in @($FrontendBucket, $MemoryBucket)) {
+    Write-Host "  Checking $Bucket..." -ForegroundColor Gray
+    # Check if bucket exists before trying to empty it
+    aws s3api head-bucket --bucket $Bucket 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Emptying $Bucket..." -ForegroundColor Gray
+        aws s3 rm "s3://$Bucket" --recursive
+    }
+}
+
+# 5. Destroy
+Write-Host "Running terraform destroy..." -ForegroundColor Red
+
+$destroyArgs = @("-var", "project_name=$ProjectName", "-var", "environment=$Environment", "-auto-approve")
+if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
+    $destroyArgs += @("-var-file", "prod.tfvars")
+}
+
+terraform destroy @destroyArgs
 
 Write-Host "Infrastructure for $Environment has been destroyed!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  To remove the workspace completely, run:" -ForegroundColor Cyan
-Write-Host "   terraform workspace select default" -ForegroundColor White
-Write-Host "   terraform workspace delete $Environment" -ForegroundColor White
+Write-Host "To clean up the workspace state from S3, run:" -ForegroundColor Cyan
+Write-Host "  terraform workspace select default"
+Write-Host "  terraform workspace delete $Environment"
