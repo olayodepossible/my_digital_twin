@@ -9,11 +9,14 @@ $ErrorActionPreference = "Stop"
 function Get-TerraformExe {
     $cmd = Get-Command terraform -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Path }
+    $homeRoot = if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $env:HOME } else { $env:USERPROFILE }
     foreach ($p in @(
             (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe"),
-            "C:\Program Files\Terraform\terraform.exe"
+            "C:\Program Files\Terraform\terraform.exe",
+            (Join-Path $homeRoot ".local/bin/terraform"),
+            "/usr/local/bin/terraform"
         )) {
-        if (Test-Path -LiteralPath $p) { return $p }
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
     }
     return $null
 }
@@ -85,28 +88,35 @@ $awsRegion = if (-not [string]::IsNullOrWhiteSpace($env:DEFAULT_AWS_REGION)) {
 # Ensure S3 Backend exists (Fix for LocationConstraint handled inside this script)
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
-& $tf init -input=false `
-  -backend-config="bucket=twin-terraform-state-$awsAccountId" `
-  -backend-config="key=terraform.tfstate" `
-  -backend-config="region=$awsRegion" `
-  -backend-config="dynamodb_table=terraform-locks" `
-  -backend-config="encrypt=true"
+# Splat args so pwsh never treats "--" / continuation lines as operators (fixes GHA / Linux).
+$initArgs = @(
+    'init', '-input=false',
+    "-backend-config=bucket=twin-terraform-state-$awsAccountId",
+    "-backend-config=key=$Environment/terraform.tfstate",
+    "-backend-config=region=$awsRegion",
+    '-backend-config=use_lockfile=true',
+    '-backend-config=encrypt=true'
+)
+& $tf @initArgs
 
 # --- Fix: Workspace Selection Logic ---
-$currentWorkspaces = & $tf workspace list
+$currentWorkspaces = & $tf @('workspace', 'list')
 # Use regex boundary \b to ensure we don't match 'dev' inside 'dev-test'
 if ($currentWorkspaces -match "\b$Environment\b") {
     Write-Host "Selecting workspace: $Environment" -ForegroundColor Gray
-    & $tf workspace select $Environment
+    & $tf @('workspace', 'select', $Environment)
 } else {
     Write-Host "Creating new workspace: $Environment" -ForegroundColor Yellow
-    & $tf workspace new $Environment
+    & $tf @('workspace', 'new', $Environment)
 }
 
 if ($Environment -eq "prod") {
-    & $tf apply -var-file="prod.tfvars" -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    & $tf @(
+        'apply', '-var-file=prod.tfvars',
+        "-var=project_name=$ProjectName", "-var=environment=$Environment", '-auto-approve'
+    )
 } else {
-    & $tf apply -var="project_name=$ProjectName" -var="environment=$Environment" -auto-approve
+    & $tf @('apply', "-var=project_name=$ProjectName", "-var=environment=$Environment", '-auto-approve')
 }
 
 # ... after terraform apply ...
@@ -114,8 +124,8 @@ if ($Environment -eq "prod") {
 Write-Host "Fetching outputs..." -ForegroundColor Yellow
 
 # Use -json and parse it to be more robust, or stay with -raw but add a check
-$FrontendBucket = & $tf output -raw s3_frontend_bucket
-$ApiUrl         = & $tf output -raw api_gateway_url
+$FrontendBucket = & $tf @('output', '-raw', 's3_frontend_bucket')
+$ApiUrl         = & $tf @('output', '-raw', 'api_gateway_url')
 
 # VALIDATION: Stop early if outputs are missing
 if ([string]::IsNullOrWhiteSpace($FrontendBucket)) {
@@ -124,7 +134,7 @@ if ([string]::IsNullOrWhiteSpace($FrontendBucket)) {
 }
 
 Write-Host "Deploying to bucket: $FrontendBucket" -ForegroundColor Gray
-try { $CustomUrl = & $tf output -raw custom_domain_url } catch { $CustomUrl = "" }
+try { $CustomUrl = & $tf @('output', '-raw', 'custom_domain_url') } catch { $CustomUrl = "" }
 
 # 3. Build + deploy frontend
 Set-Location ..\frontend
@@ -142,13 +152,13 @@ if (-not (Test-Path -Path $frontendOut -PathType Container)) {
     throw "Static export folder not found: $frontendOut."
 }
 
-& $tf output
+& $tf @('output')
 aws s3 sync "$frontendOut" "s3://$FrontendBucket/" '--delete'
 if ($LASTEXITCODE -ne 0) { throw "aws s3 sync failed." }
 Set-Location ..
 
 # 4. Final summary
-$CfUrl = & $tf -chdir=terraform output -raw cloudfront_url
+$CfUrl = & $tf @('-chdir=terraform', 'output', '-raw', 'cloudfront_url')
 Write-Host "Deployment complete!" -ForegroundColor Green
 Write-Host "CloudFront URL : $CfUrl" -ForegroundColor Cyan
 if ($CustomUrl -and $CustomUrl -notmatch "Output not found") {

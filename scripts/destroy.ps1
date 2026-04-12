@@ -9,11 +9,14 @@ $ErrorActionPreference = "Stop"
 function Get-TerraformExe {
     $cmd = Get-Command terraform -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Path }
+    $homeRoot = if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $env:HOME } else { $env:USERPROFILE }
     foreach ($p in @(
             (Join-Path $env:LOCALAPPDATA "Programs\terraform\terraform.exe"),
-            "C:\Program Files\Terraform\terraform.exe"
+            "C:\Program Files\Terraform\terraform.exe",
+            (Join-Path $homeRoot ".local/bin/terraform"),
+            "/usr/local/bin/terraform"
         )) {
-        if (Test-Path -LiteralPath $p) { return $p }
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
     }
     return $null
 }
@@ -71,17 +74,20 @@ if (-not $tf) {
 & (Join-Path $PSScriptRoot "ensure-terraform-backend.ps1") -AccountId $awsAccountId -Region $awsRegion
 
 Write-Host "Initializing Terraform..." -ForegroundColor Yellow
-& $tf init -input=false `
-  -backend-config="bucket=twin-terraform-state-$awsAccountId" `
-  -backend-config="key=$Environment/terraform.tfstate" `
-  -backend-config="region=$awsRegion" `
-  -backend-config="use_lockfile=true" `
-  -backend-config="encrypt=true"
+$initArgs = @(
+    'init', '-input=false',
+    "-backend-config=bucket=twin-terraform-state-$awsAccountId",
+    "-backend-config=key=$Environment/terraform.tfstate",
+    "-backend-config=region=$awsRegion",
+    '-backend-config=use_lockfile=true',
+    '-backend-config=encrypt=true'
+)
+& $tf @initArgs
 
 # 3. Workspace Selection (Fix: Match deploy.ps1 logic)
-$currentWorkspaces = & $tf workspace list
+$currentWorkspaces = & $tf @('workspace', 'list')
 if ($currentWorkspaces -match "\b$Environment\b") {
-    & $tf workspace select $Environment
+    & $tf @('workspace', 'select', $Environment)
 } else {
     Write-Warning "Workspace '$Environment' not found. Nothing to destroy."
     exit 0
@@ -102,7 +108,7 @@ foreach ($Bucket in @($FrontendBucket, $MemoryBucket)) {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $null = aws s3api head-bucket --bucket $Bucket 2>$null
+        $null = aws s3api head-bucket '--bucket' $Bucket 2>$null
         $headOk = ($LASTEXITCODE -eq 0)
     }
     finally {
@@ -110,19 +116,19 @@ foreach ($Bucket in @($FrontendBucket, $MemoryBucket)) {
     }
     if ($headOk) {
         Write-Host "  Emptying $Bucket..." -ForegroundColor Gray
-        aws s3 rm "s3://$Bucket" --recursive
+        aws s3 rm "s3://$Bucket" '--recursive'
     }
 }
 
 # 5. Destroy
 Write-Host "Running terraform destroy..." -ForegroundColor Red
 
-$destroyArgs = @("-var", "project_name=$ProjectName", "-var", "environment=$Environment", "-auto-approve")
+$destroyArgs = @('destroy', '-var', "project_name=$ProjectName", '-var', "environment=$Environment", '-auto-approve')
 if ($Environment -eq "prod" -and (Test-Path "prod.tfvars")) {
-    $destroyArgs += @("-var-file", "prod.tfvars")
+    $destroyArgs = @('destroy', '-var-file', 'prod.tfvars', '-var', "project_name=$ProjectName", '-var', "environment=$Environment", '-auto-approve')
 }
 
-& $tf destroy @destroyArgs
+& $tf @destroyArgs
 
 Write-Host "Infrastructure for $Environment has been destroyed!" -ForegroundColor Green
 Write-Host ""
