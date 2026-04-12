@@ -125,6 +125,21 @@ foreach ($Bucket in @($FrontendBucket, $MemoryBucket)) {
 }
 
 # 5. Destroy
+# Terraform still evaluates aws_lambda_function.filename / source_code_hash during destroy; ensure zip exists.
+$lambdaZip = Join-Path $ProjectRoot "backend/lambda-deployment.zip"
+if (-not (Test-Path -LiteralPath $lambdaZip)) {
+    Write-Host "Creating minimal stub lambda-deployment.zip for Terraform (destroy-only)..." -ForegroundColor Yellow
+    $zipDir = Split-Path -Parent $lambdaZip
+    if (-not (Test-Path -LiteralPath $zipDir)) {
+        New-Item -ItemType Directory -Path $zipDir -Force | Out-Null
+    }
+    $emptyZip = [byte[]](
+        0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    )
+    [System.IO.File]::WriteAllBytes($lambdaZip, $emptyZip)
+}
+
 Write-Host "Running terraform destroy..." -ForegroundColor Red
 
 $destroyArgs = @('destroy', '-var', "project_name=$ProjectName", '-var', "environment=$Environment", '-auto-approve')

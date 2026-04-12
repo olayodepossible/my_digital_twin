@@ -8,6 +8,9 @@ locals {
 
   name_prefix = "${var.project_name}-${var.environment}"
 
+  # Lambda zip is produced by backend/deploy.py during deploy; it may be absent for destroy-only runs.
+  lambda_zip_path = "${path.module}/../backend/lambda-deployment.zip"
+
   common_tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -120,11 +123,12 @@ resource "aws_iam_role_policy_attachment" "lambda_s3" {
 
 # Lambda function
 resource "aws_lambda_function" "api" {
-  filename         = "${path.module}/../backend/lambda-deployment.zip"
-  function_name    = "${local.name_prefix}-api"
-  role             = aws_iam_role.lambda_role.arn
-  handler          = "lambda_handler.handler"
-  source_code_hash = filebase64sha256("${path.module}/../backend/lambda-deployment.zip")
+  filename      = local.lambda_zip_path
+  function_name = "${local.name_prefix}-api"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "lambda_handler.handler"
+  # Avoid hard failure when zip is missing (e.g. terraform destroy without a prior build).
+  source_code_hash = fileexists(local.lambda_zip_path) ? filebase64sha256(local.lambda_zip_path) : "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
   runtime          = "python3.12"
   architectures    = ["x86_64"]
   timeout          = var.lambda_timeout
