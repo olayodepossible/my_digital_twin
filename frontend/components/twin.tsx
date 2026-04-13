@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
     id: string;
@@ -9,6 +10,65 @@ interface Message {
     content: string;
     timestamp: Date;
 }
+
+const assistantMarkdownComponents = {
+    p: ({ children }: { children?: React.ReactNode }) => (
+        <p className="mb-2 last:mb-0 break-words leading-relaxed">{children}</p>
+    ),
+    strong: ({ children }: { children?: React.ReactNode }) => (
+        <strong className="font-semibold text-gray-900">{children}</strong>
+    ),
+    em: ({ children }: { children?: React.ReactNode }) => (
+        <em className="italic">{children}</em>
+    ),
+    ul: ({ children }: { children?: React.ReactNode }) => (
+        <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>
+    ),
+    ol: ({ children }: { children?: React.ReactNode }) => (
+        <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+    ),
+    li: ({ children }: { children?: React.ReactNode }) => (
+        <li className="break-words pl-0.5">{children}</li>
+    ),
+    h1: ({ children }: { children?: React.ReactNode }) => (
+        <h3 className="mb-2 text-base font-semibold text-gray-900">{children}</h3>
+    ),
+    h2: ({ children }: { children?: React.ReactNode }) => (
+        <h3 className="mb-2 text-base font-semibold text-gray-900">{children}</h3>
+    ),
+    h3: ({ children }: { children?: React.ReactNode }) => (
+        <h3 className="mb-2 text-sm font-semibold text-gray-900">{children}</h3>
+    ),
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+        <a
+            href={href}
+            className="font-medium text-slate-700 underline decoration-slate-400 underline-offset-2 hover:text-slate-900"
+            target="_blank"
+            rel="noopener noreferrer"
+        >
+            {children}
+        </a>
+    ),
+    code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+        const isBlock = Boolean(className);
+        if (isBlock) {
+            return (
+                <code className="my-2 block overflow-x-auto rounded bg-gray-100 p-2 text-xs font-mono text-gray-800">
+                    {children}
+                </code>
+            );
+        }
+        return (
+            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[0.9em] text-gray-800">{children}</code>
+        );
+    },
+    pre: ({ children }: { children?: React.ReactNode }) => (
+        <pre className="my-2 overflow-x-auto rounded-md bg-gray-100 p-2 text-xs">{children}</pre>
+    ),
+    blockquote: ({ children }: { children?: React.ReactNode }) => (
+        <blockquote className="my-2 border-l-4 border-slate-300 pl-3 text-gray-700 italic">{children}</blockquote>
+    ),
+};
 
 export default function Twin() {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -161,7 +221,15 @@ export default function Twin() {
                                     : 'bg-white border border-gray-200 text-gray-800'
                             }`}
                         >
-                            <p className="whitespace-pre-wrap">{message.content}</p>
+                            {message.role === 'assistant' ? (
+                                <div className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                                    <ReactMarkdown components={assistantMarkdownComponents}>
+                                        {message.content}
+                                    </ReactMarkdown>
+                                </div>
+                            ) : (
+                                <p className="whitespace-pre-wrap">{message.content}</p>
+                            )}
                             <p
                                 className={`text-xs mt-1 ${
                                     message.role === 'user' ? 'text-slate-300' : 'text-gray-500'
