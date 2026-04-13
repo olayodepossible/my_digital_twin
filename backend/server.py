@@ -39,9 +39,11 @@ def _normalize_openrouter_api_key(raw: str | None) -> str:
 
 def _openrouter_client() -> OpenAI:
     key = _normalize_openrouter_api_key(os.getenv("OPENROUTER_API_KEY"))
+    print(f"OpenRouter API Key: {key}", flush=True)
     if not key:
         raise ValueError("OPENROUTER_API_KEY is not set")
     base = (os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
+    print(f"OpenRouter Base URL: {base}", flush=True)
     return OpenAI( api_key=key, base_url=base)
 
 # Memory storage configuration
@@ -146,7 +148,9 @@ async def chat(request: ChatRequest):
         messages.append({"role": "user", "content": request.message})
 
         # OpenRouter via OpenAI SDK (new client each call so Lambda env is current; headers per OpenRouter docs).
-        response = _openrouter_client().chat.completions.create(
+        client = _openrouter_client()
+        print(f"Client: {client}", flush=True)
+        response = client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=messages,
         )

@@ -40,8 +40,6 @@ export default function Twin() {
         setInput('');
         setIsLoading(true);
 
-        const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/'}chat`;
-        console.log(apiUrl);
         try {
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/'}chat`, {
                 method: 'POST',
